@@ -27,6 +27,10 @@ Foundry and the gas is read off `gasleft()`.
 The proof and verifying key are checked in under `fixture/` and `src/Verifier.sol`, so the number
 is deterministic without re-running the prover.
 
+The same proof was also run through a frame transaction on a two-client (Nethermind and ethrex)
+Kurtosis devnet, where both clients import the same block and charge the same gas. See
+[`DEVNET.md`](./DEVNET.md).
+
 ## Reproduce
 
 Measure the gas from the checked-in fixture (needs only [Foundry](https://getfoundry.sh)):
