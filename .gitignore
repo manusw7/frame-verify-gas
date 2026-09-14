@@ -2,3 +2,6 @@ out/
 cache/
 prover/prover
 *.key
+artifacts/
+dist/
+__pycache__/

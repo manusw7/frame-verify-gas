@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"math/big"
 	"os"
@@ -14,18 +15,18 @@ import (
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 )
 
-// Cubic is the canonical minimal Groth16 circuit: prove knowledge of X such that
-// X**3 + X + 5 == Y, with Y the single public input. It uses only field arithmetic,
-// so gnark emits a plain verifier that verifies through the BN254 precompiles
-// (ecAdd 0x06, ecMul 0x07, ecPairing 0x08) - exactly what a frame VERIFY prefix runs.
+// Cubic binds each public Y[i] to a distinct private X[i]. Changing the slice
+// length changes the R1CS and requires a fresh circuit-specific Groth16 setup.
 type Cubic struct {
-	X frontend.Variable `gnark:",secret"`
-	Y frontend.Variable `gnark:",public"`
+	X []frontend.Variable `gnark:",secret"`
+	Y []frontend.Variable `gnark:",public"`
 }
 
 func (c *Cubic) Define(api frontend.API) error {
-	x3 := api.Mul(c.X, c.X, c.X)
-	api.AssertIsEqual(c.Y, api.Add(x3, c.X, 5))
+	for i := range c.Y {
+		x3 := api.Mul(c.X[i], c.X[i], c.X[i])
+		api.AssertIsEqual(c.Y[i], api.Add(x3, c.X[i], 5))
+	}
 	return nil
 }
 
@@ -38,24 +39,33 @@ func must(err error) {
 func hexWord(b *big.Int) string { return fmt.Sprintf("0x%064x", b) }
 
 func main() {
+	inputs := flag.Int("inputs", 1, "number of independently constrained public inputs (1..128)")
+	flag.Parse()
+	if *inputs < 1 || *inputs > 128 {
+		panic("inputs must be in 1..128")
+	}
 	outDir := "."
-	if len(os.Args) > 1 {
-		outDir = os.Args[1]
+	if flag.NArg() > 0 {
+		outDir = flag.Arg(0)
 	}
 	contractDir := filepath.Join(outDir, "src")
 	fixtureDir := filepath.Join(outDir, "fixture")
 	must(os.MkdirAll(contractDir, 0o755))
 	must(os.MkdirAll(fixtureDir, 0o755))
 
-	var circuit Cubic
+	circuit := Cubic{X: make([]frontend.Variable, *inputs), Y: make([]frontend.Variable, *inputs)}
 	ccs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, &circuit)
 	must(err)
 
 	pk, vk, err := groth16.Setup(ccs)
 	must(err)
 
-	// X = 3 -> Y = 27 + 3 + 5 = 35
-	assignment := Cubic{X: 3, Y: 35}
+	// Distinct nonzero public values prevent accidental zero-input shortcuts.
+	assignment := Cubic{X: make([]frontend.Variable, *inputs), Y: make([]frontend.Variable, *inputs)}
+	for i := range assignment.X {
+		x := int64(i + 3)
+		assignment.X[i], assignment.Y[i] = x, x*x*x+x+5
+	}
 	witness, err := frontend.NewWitness(&assignment, ecc.BN254.ScalarField())
 	must(err)
 	publicWitness, err := witness.Public()
@@ -79,6 +89,9 @@ func main() {
 		panic("proof does not expose MarshalSolidity")
 	}
 	raw := ms.MarshalSolidity()
+	if len(raw) != 8*32 {
+		panic("expected commitment-free 8-word Groth16 proof")
+	}
 	proofWords := make([]string, 0, len(raw)/32)
 	for i := 0; i+32 <= len(raw); i += 32 {
 		proofWords = append(proofWords, "0x"+fmt.Sprintf("%064x", new(big.Int).SetBytes(raw[i:i+32])))
@@ -96,12 +109,20 @@ func main() {
 		inputWords = append(inputWords, hexWord(&bi))
 	}
 
+	// Negate A.y within the BN254 base field. A remains on-curve, B/C and all
+	// public inputs remain unchanged. The uncompressed entry point reaches the
+	// pairing precompile, whose equation now fails (rather than rejecting a point).
+	invalidWords := append([]string(nil), proofWords...)
+	q, _ := new(big.Int).SetString("21888242871839275222246405745257275088696311157297823662689037894645226208583", 10)
+	ay := new(big.Int).SetBytes(raw[32:64])
+	invalidWords[1] = hexWord(new(big.Int).Sub(q, ay))
 	fixture := map[string]any{
-		"circuit":     "x^3 + x + 5 == y (bn254, groth16, gnark v0.11)",
-		"public_y":    "35",
-		"proof_words": proofWords,
-		"input_words": inputWords,
-		"proof_len":   len(raw),
+		"circuit":             "x^3 + x + 5 == y (bn254, groth16, gnark v0.11)",
+		"public_input_count":  *inputs,
+		"proof_words":         proofWords,
+		"invalid_proof_words": invalidWords,
+		"input_words":         inputWords,
+		"proof_len":           len(raw),
 	}
 	f, err := os.Create(filepath.Join(fixtureDir, "proof.json"))
 	must(err)

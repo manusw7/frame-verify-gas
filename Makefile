@@ -11,3 +11,14 @@ test:
 
 clean:
 	rm -rf out cache
+
+# Current sweep ceilings verified on nethermind eip8141-frame-txs-devnet7:
+# a4d4306106170c9009e405d1b2819b5a6681e5b9 (2026-09-14).
+.PHONY: sweep synthetic-sweeps
+sweep:
+	python3 scripts/synthetic-sweep.py --target $(TARGET) --label $(or $(LABEL),$(TARGET)) --output $(or $(OUTPUT),artifacts)
+
+synthetic-sweeps:
+	$(MAKE) sweep TARGET=236285 LABEL=236k
+	$(MAKE) sweep TARGET=300000 LABEL=300k
+	$(MAKE) sweep TARGET=500000 LABEL=500k
