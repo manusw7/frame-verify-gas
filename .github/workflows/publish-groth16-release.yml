@@ -1,0 +1,66 @@
+name: Publish reviewed Groth16 release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: New version, vMAJOR.MINOR.PATCH
+        required: true
+        type: string
+      synthetic_run:
+        description: Successful synthetic candidate run ID at this commit
+        required: true
+        type: string
+      soispoke_run:
+        description: Successful soispoke candidate run ID at this commit
+        required: true
+        type: string
+      signoff_comment:
+        description: Maintainer PR/issue comment ID containing the exact artifact sign-off
+        required: true
+        type: string
+
+concurrency:
+  group: groth16-release
+  cancel-in-progress: false
+
+permissions:
+  actions: read
+  contents: write
+  issues: read
+  pull-requests: read
+
+jobs:
+  publish:
+    if: github.repository == 'NethermindEth/frame-verify-gas'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - name: Verify named review of the exact candidate assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+          SYNTHETIC_RUN: ${{ inputs.synthetic_run }}
+          SOISPOKE_RUN: ${{ inputs.soispoke_run }}
+          SIGNOFF_COMMENT: ${{ inputs.signoff_comment }}
+        run: |
+          python3 scripts/prepare-release.py --repo "$GITHUB_REPOSITORY" \
+            --version "$VERSION" --commit "$GITHUB_SHA" \
+            --synthetic-run "$SYNTHETIC_RUN" --soispoke-run "$SOISPOKE_RUN" \
+            --signoff-comment "$SIGNOFF_COMMENT" --output "$RUNNER_TEMP/release"
+      - name: Create the reviewed tag and release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$VERSION" >/dev/null 2>&1; then
+            echo "::error::Tag $VERSION already exists. Use a new version; releases are never overwritten."
+            exit 1
+          fi
+          gh release create "$VERSION" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "Groth16 benchmark artifacts $VERSION" --draft \
+            --notes-file "$RUNNER_TEMP/release/RELEASE-NOTES.md" \
+            "$RUNNER_TEMP/release/"sweep-*.tar.gz "$RUNNER_TEMP/release/SHA256SUMS"
+          gh release edit "$VERSION" --repo "$GITHUB_REPOSITORY" --draft=false --latest=false

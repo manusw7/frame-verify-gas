@@ -33,6 +33,9 @@ Kurtosis devnet, where both clients import the same block and charge the same ga
 
 ## Reproduce
 
+For the calibrated synthetic sweeps and pinned soispoke release pipeline, see
+[artifact generation, named review and publication](docs/artifact-releases.md).
+
 Measure the gas from the checked-in fixture (needs only [Foundry](https://getfoundry.sh)):
 
 ```

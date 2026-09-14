@@ -1,0 +1,52 @@
+name: Build Groth16 candidates
+
+on:
+  workflow_dispatch:
+    inputs:
+      component:
+        description: Independently build synthetic sweeps or the pinned soispoke fixture
+        required: true
+        type: choice
+        options: [synthetic, soispoke]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: prover/go.mod
+          cache-dependency-path: prover/go.sum
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.7.1
+      - name: Check circuit and release trust boundaries
+        run: |
+          (cd prover && go test ./...)
+          python3 -m unittest discover -s scripts -p 'test_*.py' -v
+      - name: Generate and measure synthetic sweeps
+        if: inputs.component == 'synthetic'
+        run: |
+          make sweep TARGET=236285 LABEL=236k
+          make sweep TARGET=300000 LABEL=300k
+          make sweep TARGET=500000 LABEL=500k
+      - name: Extract and measure pinned soispoke fixture
+        if: inputs.component == 'soispoke'
+        run: python3 scripts/soispoke.py --output artifacts/sweep-soispoke
+      - name: Package candidate
+        env:
+          COMPONENT: ${{ inputs.component }}
+        run: python3 scripts/package-sweeps.py --component "$COMPONENT"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.component }}-candidate
+          path: dist/*.tar.gz
+          if-no-files-found: error
+          retention-days: 30
