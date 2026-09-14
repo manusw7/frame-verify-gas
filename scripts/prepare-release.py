@@ -27,6 +27,8 @@ def prepare(args):
         raise ValueError("expected version vMAJOR.MINOR.PATCH without prerelease suffix")
     if not re.fullmatch(r"[0-9a-f]{40}", args.commit):
         raise ValueError("expected full candidate commit SHA")
+    if args.signoff_comment and not args.dispatcher:
+        raise ValueError("--dispatcher is required with --signoff-comment")
     args.output.mkdir(parents=True, exist_ok=False)
     for component, run_id in (("synthetic", args.synthetic_run), ("soispoke", args.soispoke_run)):
         run = api(f"repos/{args.repo}/actions/runs/{run_id}")
@@ -47,7 +49,7 @@ def prepare(args):
                 name = Path(member.name)
                 total += member.size
                 if (not member.isfile() or name.is_absolute() or str(name) != member.name or ".." in name.parts
-                        or name.parts[0] != f"sweep-{label}" or member.name in names
+                        or not name.parts or name.parts[0] != f"sweep-{label}" or member.name in names
                         or total > 32 * 1024 * 1024):
                     raise ValueError(f"unsafe archive member: {member.name}")
                 names.add(member.name)
@@ -55,9 +57,10 @@ def prepare(args):
             if label == "soispoke":
                 required_files += ["provenance.json", "trace.txt", "source/src/Groth16Verifier.sol",
                                    "source/COPYING", "source/LICENSE.upstream-Apache-2.0",
-                                   "source/README.md", "source/foundry.toml", "source/scripts/soispoke.py", "source/scripts/licenses/GPL-3.0.txt", "source/LICENSE.pipeline-MIT"]
+                                   "source/README.md", "source/foundry.toml", "source/scripts/soispoke.py", "source/scripts/licenses/GPL-3.0.txt", "source/LICENSE.pipeline-MIT",
+                                   "source/test/Fixture.t.sol", "source/NOTICE", "source/tooling/patch_verifier.py"]
             else:
-                required_files += ["Verifier.sol", "proof.json", "metadata.json",
+                required_files += ["README.txt", "Verifier.sol", "proof.json", "metadata.json",
                                    "trace-valid.txt", "trace-invalid.txt"]
             for required in required_files:
                 if f"sweep-{label}/{required}" not in names:
@@ -79,6 +82,8 @@ def prepare(args):
         comment = api(f"repos/{args.repo}/issues/comments/{args.signoff_comment}")
         if (comment["user"]["type"] != "User"
                 or comment["author_association"] not in ("OWNER", "MEMBER", "COLLABORATOR")
+                or comment["updated_at"] != comment["created_at"]
+                or comment["user"]["login"].lower() == args.dispatcher.lower()
                 or comment["body"].strip() != attestation):
             raise ValueError("named maintainer sign-off does not match these exact assets and version")
         notes = (f"Benchmark-only disposable Groth16 setups; never use for production funds.\n\n"
@@ -102,5 +107,6 @@ if __name__ == "__main__":
     parser.add_argument("--synthetic-run", required=True, type=int)
     parser.add_argument("--soispoke-run", required=True, type=int)
     parser.add_argument("--signoff-comment", type=int)
+    parser.add_argument("--dispatcher", help="login that dispatched publication; must differ from the signer")
     parser.add_argument("--output", type=Path, required=True)
     prepare(parser.parse_args())

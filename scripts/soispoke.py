@@ -29,7 +29,10 @@ HASHES = {
     "contracts/foundry.toml": "af279592ce45b3be466ff10f0d20c4b3107ba47776259a738176fc789d59b817",
     "activation_manifest.testbed.json": "5e7e91b8ab465cce6fa60a1bbad89914561c014ecbd4b2aa078b68c08b4b6acc",
     "LICENSE": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+    "NOTICE": "c82d7a1cd702d4d091fc8459a4eb407d19cec08c14d97ba20c928ad154ebe04c",
 }
+# Byte-exact https://www.gnu.org/licenses/gpl-3.0.txt
+GPL_SHA256 = "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
 CONFIG = '''[profile.default]
 src = "src"
 test = "test"
@@ -85,7 +88,7 @@ def main():
     args = parser.parse_args()
     forge = os.environ.get("FORGE", "forge")
     version = run(forge, "--version")
-    if "1.7.1" not in version.splitlines()[0]:
+    if version.splitlines()[0].strip() != "forge Version: 1.7.1":
         raise ValueError("Foundry v1.7.1 is required for reproducible traces")
     if args.output.exists():
         raise ValueError("output already exists; choose a fresh output directory")
@@ -120,6 +123,8 @@ def main():
             expected_pairings = int(name in ("valid", "authorizer"))
             if pairings != expected_pairings:
                 raise ValueError(f"{name}: expected {expected_pairings} pairing calls, got {pairings}")
+            if not expected_pairings and "PRECOMPILES::" in block:
+                raise ValueError(f"{name}: early exit must not call any precompile")
             if expected_pairings and not re.search(r"\[181000\] PRECOMPILES::ecpairing", block, re.IGNORECASE):
                 raise ValueError("four-pair BN254 pairing did not consume 181000 gas")
             bracket = re.search(r"GasBracket\(used: (\d+)", block)
@@ -142,12 +147,18 @@ def main():
         (output / "trace.txt").write_text(trace)
         provenance = {"upstream": UPSTREAM, "commit": PIN, "input_sha256": HASHES, "foundry": version.strip(), "compiler": "0.8.30", "optimizer_runs": 5000, "via_ir": True, "evm_version": "prague", "mutation": "input[9] ^= 1", "ceremony": manifest["ceremony"], "measurements": measurements, "historical_full_pool_verify_frame_gas": 294401, "historical_isolated_nethermind_gas": 248437}
         (output / "provenance.json").write_text(json.dumps(provenance, indent=2) + "\n")
+        gpl = Path(__file__).parent / "licenses/GPL-3.0.txt"
+        if hashlib.sha256(gpl.read_bytes()).hexdigest() != GPL_SHA256:
+            raise ValueError("bundled GPL-3.0 text is not the canonical gpl-3.0.txt")
         corresponding = output / "source"
         shutil.copytree(project / "src", corresponding / "src")
         shutil.copytree(project / "test", corresponding / "test")
         shutil.copyfile(project / "foundry.toml", corresponding / "foundry.toml")
-        shutil.copyfile(Path(__file__).parent / "licenses/GPL-3.0.txt", corresponding / "COPYING")
+        shutil.copyfile(gpl, corresponding / "COPYING")
         shutil.copyfile(source / "LICENSE", corresponding / "LICENSE.upstream-Apache-2.0")
+        shutil.copyfile(source / "NOTICE", corresponding / "NOTICE")
+        (corresponding / "tooling").mkdir()
+        shutil.copyfile(source / "tooling/patch_verifier.py", corresponding / "tooling/patch_verifier.py")
         (corresponding / "scripts/licenses").mkdir(parents=True)
         shutil.copyfile(Path(__file__), corresponding / "scripts/soispoke.py")
         shutil.copyfile(Path(__file__).parent / "licenses/GPL-3.0.txt", corresponding / "scripts/licenses/GPL-3.0.txt")
@@ -156,7 +167,7 @@ def main():
         if not pipeline_license.exists():
             pipeline_license = pipeline_root / "LICENSE.pipeline-MIT"
         shutil.copyfile(pipeline_license, corresponding / "LICENSE.pipeline-MIT")
-        (corresponding / "README.md").write_text(f"# Corresponding verifier source\n\nUpstream: {UPSTREAM} at `{PIN}`.\n\n`src/Groth16Verifier.sol` is unmodified, Copyright 2021 0KIMS association,\nSPDX GPL-3.0 (its notice permits version 3 or later); see COPYING.\nThe repository-wide Apache-2.0 license does not replace this file's GPL terms.\n\nRebuild runtime with Foundry v1.7.1: `forge inspect Groth16Verifier deployedBytecode`.\nReproduce gas and all four mutations: `forge test -vvvv`.\nSolc and compiler flags are pinned in foundry.toml.\nNo external Solidity dependencies are needed. Source and bytecode must be\ndistributed together, including these notices and COPYING.\nThis fixture uses upstream's single-party disposable testbed setup.\n")
+        (corresponding / "README.md").write_text(f"# Corresponding verifier source\n\nUpstream: {UPSTREAM} at `{PIN}`.\n\n`src/Groth16Verifier.sol` is snarkJS 0.7.5 output, patched by upstream\n`tooling/patch_verifier.py` (included), redistributed without further modification.\nIt is labelled GPL-3.0 by its SPDX tag and header notice (Copyright 2021 0KIMS\nassociation); see COPYING. Upstream notices are included in NOTICE. The\nrepository-wide Apache-2.0 license does not replace this file's GPL terms.\n\nRebuild runtime with Foundry v1.7.1: `forge inspect Groth16Verifier deployedBytecode`.\nReproduce gas and all four mutations: `forge test -vvvv`.\nSolc and compiler flags are pinned in foundry.toml.\nNo external Solidity dependencies are needed. Source and bytecode must be\ndistributed together, including these notices and COPYING.\nThis fixture uses upstream's single-party disposable testbed setup.\n")
         print(json.dumps(measurements, indent=2))
 
 

@@ -55,11 +55,14 @@ manifest's historical whole-frame maximum.
 
 ## Source distribution and licensing review
 
-The verifier's own header says SPDX GPL-3.0, Copyright 2021 0KIMS association,
-and permits version 3 or later. The upstream repository's Apache-2.0 license
-does not replace that header. The archive includes the unchanged verifier,
-complete license text, notices, its dependency-free build configuration,
-generated tests and extraction script under `sweep-soispoke/source/`.
+`contracts/src/Groth16Verifier.sol` is snarkJS 0.7.5 output, patched by upstream
+`tooling/patch_verifier.py`, redistributed without further modification. It is
+labelled GPL-3.0 by its SPDX tag and header notice (Copyright 2021 0KIMS
+association); upstream's NOTICE says the same. The upstream repository's
+Apache-2.0 license does not replace that label. The archive includes the verifier,
+the canonical GPL-3.0 text (hash-checked), upstream LICENSE and NOTICE, the patcher,
+its dependency-free build configuration, generated tests and extraction script
+under `sweep-soispoke/source/`.
 That source can rebuild the published runtime with `forge inspect
 Groth16Verifier deployedBytecode` from its directory. The build requires no
 external Solidity library or proving key. The extraction script is MIT;
@@ -71,6 +74,10 @@ Keep source and object code in the same release archive, at no additional charge
 and do not relabel the verifier as MIT or Apache-2.0. The archive's generated test
 fixture contains only public proof/input data, without copying the upstream wallet
 private-key fields.
+
+**Licensing decision pending.** Options: ship bytecode with corresponding source
+(current), regenerate the verifier with a permissively licensed generator, ask
+iden3 for terms covering generated verifiers, or exclude the soispoke bytecode.
 
 **Release remains gated on named human crypto/circuit and licensing sign-off.**
 Implementation and source review by an automated agent do not supply that named

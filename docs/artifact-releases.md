@@ -23,7 +23,10 @@ Each output directory contains `verifier.hex` (runtime, not creation bytecode),
 `calldata-invalid.hex`, and `gas.txt` (verifier child-call execution gas from the Foundry trace),
 plus source and evidence. Valid controls must pass. Invalid synthetic calls use uncompressed
 `verifyProof` and negate A's y coordinate while retaining a valid curve point; they must revert
-with `ProofInvalid()` after one successful, false four-pair check costing 181,000 gas. The
+with `ProofInvalid()` after one successful, false four-pair check costing 181,000 gas. That
+invalid call is measured with call gas capped at `ceiling - 3000`: the verifier forwards
+`gas()` to `ecPairing`, so under the EVM 63/64 rule N is the largest count whose pairing still
+completes and returns false within the cap, not the largest whose total gas fits. The
 soispoke proof flips public `input[9]` and must return false after pairing. Its coordinate-alias
 and infinity controls must fail before any precompile call.
 
@@ -61,15 +64,22 @@ The new output directory contains four `sweep-*.tar.gz` assets, `SHA256SUMS`, an
 
 The reviewer then posts the **exact contents** of `SIGNOFF-REQUIRED.txt` as a PR/issue comment
 in `NethermindEth/frame-verify-gas`. The publication script verifies the comment author's
-GitHub association is OWNER, MEMBER or COLLABORATOR, that it is a human account, and that the
-comment binds the version, source commit and SHA256 of the complete checksum manifest. This
+GitHub association is OWNER, MEMBER or COLLABORATOR, that it is a human account other than the
+maintainer dispatching publication, that the comment was never edited, and that the comment binds the version, source commit and SHA256 of the complete checksum manifest. This
 checks provenance; maintainers still must choose a reviewer competent to make that assessment.
 
-Dispatch `Publish reviewed Groth16 release` at the same commit with the version, both run IDs,
-and the numeric comment ID. Only then does it create the tag and a draft release, upload all
-four archives and the manifest, and publish it as a regular release. Existing tags are rejected.
-An interrupted publication can leave a draft: investigate it and use a fresh version, rather
-than replacing reviewed assets in place. Publication is restricted to the upstream repository.
+Dispatch `Publish reviewed Groth16 release` from `main` at the same commit with the version,
+both run IDs, and the numeric comment ID. It rejects any existing tag or release (including
+drafts) for that version, creates the tag and release with all four archives and the manifest
+in one step, and verifies the tag points at the dispatched commit. Use a fresh version rather
+than replacing reviewed assets in place. Publication runs only in the upstream repository on `main`.
+
+One-time maintainer setup before the first publication:
+
+- Create the `groth16-release` environment with required reviewers, "Prevent self-review"
+  enabled, and deployment branches restricted to `main`.
+- Add a tag ruleset for `v*` restricting creation, update and deletion to that workflow's
+  maintainers.
 
 ## Licensing
 

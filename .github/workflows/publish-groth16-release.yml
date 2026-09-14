@@ -32,8 +32,9 @@ permissions:
 
 jobs:
   publish:
-    if: github.repository == 'NethermindEth/frame-verify-gas'
+    if: github.repository == 'NethermindEth/frame-verify-gas' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
+    environment: groth16-release
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
@@ -48,19 +49,35 @@ jobs:
           python3 scripts/prepare-release.py --repo "$GITHUB_REPOSITORY" \
             --version "$VERSION" --commit "$GITHUB_SHA" \
             --synthetic-run "$SYNTHETIC_RUN" --soispoke-run "$SOISPOKE_RUN" \
-            --signoff-comment "$SIGNOFF_COMMENT" --output "$RUNNER_TEMP/release"
+            --signoff-comment "$SIGNOFF_COMMENT" --dispatcher "$GITHUB_ACTOR" \
+            --output "$RUNNER_TEMP/release"
       - name: Create the reviewed tag and release
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$VERSION" >/dev/null 2>&1; then
+          if ! releases=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases" --jq '.[].tag_name'); then
+            echo "::error::Could not list existing releases (including drafts)."
+            exit 1
+          fi
+          if grep -qxF "$VERSION" <<<"$releases"; then
+            echo "::error::A release (possibly draft) for $VERSION already exists. Use a new version."
+            exit 1
+          fi
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$VERSION" >/dev/null 2>"$RUNNER_TEMP/tag.err"; then
             echo "::error::Tag $VERSION already exists. Use a new version; releases are never overwritten."
+            exit 1
+          elif ! grep -q "HTTP 404" "$RUNNER_TEMP/tag.err"; then
+            echo "::error::Tag lookup for $VERSION failed: $(cat "$RUNNER_TEMP/tag.err")"
             exit 1
           fi
           gh release create "$VERSION" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-            --title "Groth16 benchmark artifacts $VERSION" --draft \
+            --title "Groth16 benchmark artifacts $VERSION" --latest=false \
             --notes-file "$RUNNER_TEMP/release/RELEASE-NOTES.md" \
             "$RUNNER_TEMP/release/"sweep-*.tar.gz "$RUNNER_TEMP/release/SHA256SUMS"
-          gh release edit "$VERSION" --repo "$GITHUB_REPOSITORY" --draft=false --latest=false
+          tagged=$(gh api "repos/$GITHUB_REPOSITORY/commits/refs/tags/$VERSION" --jq .sha)
+          if [ "$tagged" != "$GITHUB_SHA" ]; then
+            echo "::error::Tag $VERSION points at $tagged, expected $GITHUB_SHA."
+            exit 1
+          fi

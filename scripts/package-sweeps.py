@@ -4,6 +4,7 @@ import argparse
 import gzip
 import hashlib
 import io
+import json
 from pathlib import Path
 import re
 import tarfile
@@ -18,6 +19,11 @@ def validate(root):
             raise ValueError(f"{root / name}: expected nonempty, byte-aligned hex")
         if name == "verifier.hex" and not 1000 <= len(value) // 2 <= 24576:
             raise ValueError(f"{root}: implausible verifier size")
+    if root.name != "sweep-soispoke":
+        metadata = json.loads((root / "metadata.json").read_text())
+        warning = "never use to secure value"
+        if warning not in metadata.get("WARNING", "") or warning not in (root / "README.txt").read_text():
+            raise ValueError(f"{root}: missing benchmark-only setup warning")
     ceiling = {"sweep-236k": 236285, "sweep-300k": 300000,
                "sweep-500k": 500000, "sweep-soispoke": 300000}[root.name]
     if not 150000 < int((root / "gas.txt").read_text().strip()) <= ceiling:

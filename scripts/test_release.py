@@ -27,9 +27,10 @@ class ReleaseTests(unittest.TestCase):
             if label == "soispoke":
                 files += ["provenance.json", "trace.txt", "source/src/Groth16Verifier.sol",
                           "source/COPYING", "source/LICENSE.upstream-Apache-2.0",
-                          "source/README.md", "source/foundry.toml", "source/scripts/soispoke.py", "source/scripts/licenses/GPL-3.0.txt", "source/LICENSE.pipeline-MIT"]
+                          "source/README.md", "source/foundry.toml", "source/scripts/soispoke.py", "source/scripts/licenses/GPL-3.0.txt", "source/LICENSE.pipeline-MIT",
+                          "source/test/Fixture.t.sol", "source/NOTICE", "source/tooling/patch_verifier.py"]
             else:
-                files += ["Verifier.sol", "proof.json", "metadata.json", "trace-valid.txt", "trace-invalid.txt"]
+                files += ["README.txt", "Verifier.sol", "proof.json", "metadata.json", "trace-valid.txt", "trace-invalid.txt"]
             with tarfile.open(self.assets / f"sweep-{label}.tar.gz", "w:gz") as archive:
                 for filename in files:
                     data = json.dumps({"commit": "a" * 40}).encode() if filename == "provenance.json" else b"evidence"
@@ -40,7 +41,8 @@ class ReleaseTests(unittest.TestCase):
                     "head_repository": {"full_name": "NethermindEth/frame-verify-gas"},
                     "path": ".github/workflows/build-groth16-candidates.yml"}
         self.comment = {"user": {"type": "User", "login": "reviewer"}, "author_association": "MEMBER",
-                        "body": "", "html_url": "https://github.com/example/review"}
+                        "body": "", "html_url": "https://github.com/example/review",
+                        "created_at": "2026-09-14T10:00:00Z", "updated_at": "2026-09-14T10:00:00Z"}
 
     def api(self, path):
         return self.comment if "comments/" in path else self.run
@@ -53,10 +55,10 @@ class ReleaseTests(unittest.TestCase):
                 shutil.copyfile(self.assets / f"sweep-{label}.tar.gz", destination / f"sweep-{label}.tar.gz")
         return ""
 
-    def prepare(self, output="review", signoff=None, version="v1.0.0"):
+    def prepare(self, output="review", signoff=None, version="v1.0.0", dispatcher="publisher"):
         args = argparse.Namespace(repo="NethermindEth/frame-verify-gas", version=version,
                                   commit="b" * 40, synthetic_run=1, soispoke_run=2,
-                                  output=self.root / output, signoff_comment=signoff)
+                                  output=self.root / output, signoff_comment=signoff, dispatcher=dispatcher)
         with patch.object(release, "api", self.api), patch.object(release, "gh", self.gh), contextlib.redirect_stdout(io.StringIO()):
             release.prepare(args)
         return args.output
@@ -85,6 +87,17 @@ class ReleaseTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "sign-off"):
             self.prepare("changed", 123)
 
+    def test_rejects_edited_or_self_signoff(self):
+        output = self.prepare()
+        self.comment["body"] = (output / "SIGNOFF-REQUIRED.txt").read_text()
+        with patch.dict(self.comment, {"updated_at": "2026-09-14T11:00:00Z"}):
+            with self.assertRaisesRegex(ValueError, "sign-off"):
+                self.prepare("edited", 123)
+        with self.assertRaisesRegex(ValueError, "sign-off"):
+            self.prepare("self", 123, dispatcher="Reviewer")
+        with self.assertRaisesRegex(ValueError, "--dispatcher"):
+            self.prepare("no-dispatcher", 123, dispatcher=None)
+
     def test_rejects_wrong_candidate_provenance(self):
         for field, value in (("head_sha", "c" * 40), ("conclusion", "failure"),
                              ("event", "pull_request"), ("path", "different.yml")):
@@ -93,7 +106,7 @@ class ReleaseTests(unittest.TestCase):
                     self.prepare(field)
 
     def test_rejects_missing_corresponding_source_and_unsafe_archive(self):
-        for index, filename in enumerate(("sweep-soispoke/verifier.hex", "../escape", "sweep-soispoke/./alias")):
+        for index, filename in enumerate(("sweep-soispoke/verifier.hex", "../escape", "sweep-soispoke/./alias", ".")):
             with tarfile.open(self.assets / "sweep-soispoke.tar.gz", "w:gz") as archive:
                 member = tarfile.TarInfo(filename)
                 archive.addfile(member, io.BytesIO())
