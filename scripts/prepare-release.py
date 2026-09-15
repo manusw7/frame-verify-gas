@@ -13,6 +13,10 @@ spec = importlib.util.spec_from_file_location("package", Path(__file__).with_nam
 package = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(package)
 
+# Reviewers trusted to sign off a Groth16 release: named individuals with crypto/circuit context,
+# not "any org member" (which only proves repo access, not that anyone actually reviewed the artifacts).
+AUTHORIZED_SIGNERS = {"manusw7", "AnkushinDaniil"}
+
 
 def gh(*args):
     return subprocess.check_output(["gh", *args], text=True)
@@ -80,12 +84,13 @@ def prepare(args):
     print(attestation)
     if args.signoff_comment:
         comment = api(f"repos/{args.repo}/issues/comments/{args.signoff_comment}")
+        authorized = {s.lower() for s in AUTHORIZED_SIGNERS}
         if (comment["user"]["type"] != "User"
-                or comment["author_association"] not in ("OWNER", "MEMBER", "COLLABORATOR")
+                or comment["user"]["login"].lower() not in authorized
                 or comment["updated_at"] != comment["created_at"]
                 or comment["user"]["login"].lower() == args.dispatcher.lower()
                 or comment["body"].strip() != attestation):
-            raise ValueError("named maintainer sign-off does not match these exact assets and version")
+            raise ValueError("sign-off must come from an authorized reviewer and match these exact assets and version")
         notes = (f"Benchmark-only disposable Groth16 setups; never use for production funds.\n\n"
                  f"Source commit: {args.commit}\n"
                  f"Pinned soispoke source: https://github.com/soispoke/minimal-shielded-pool/tree/{upstream_commit}\n"

@@ -40,7 +40,7 @@ class ReleaseTests(unittest.TestCase):
         self.run = {"conclusion": "success", "event": "workflow_dispatch", "head_sha": "b" * 40,
                     "head_repository": {"full_name": "NethermindEth/frame-verify-gas"},
                     "path": ".github/workflows/build-groth16-candidates.yml"}
-        self.comment = {"user": {"type": "User", "login": "reviewer"}, "author_association": "MEMBER",
+        self.comment = {"user": {"type": "User", "login": "manusw7"}, "author_association": "MEMBER",
                         "body": "", "html_url": "https://github.com/example/review",
                         "created_at": "2026-09-14T10:00:00Z", "updated_at": "2026-09-14T10:00:00Z"}
 
@@ -68,17 +68,19 @@ class ReleaseTests(unittest.TestCase):
         self.comment["body"] = (output / "SIGNOFF-REQUIRED.txt").read_text()
         signed = self.prepare("signed", 123)
         notes = (signed / "RELEASE-NOTES.md").read_text()
-        self.assertIn("reviewer", notes)
+        self.assertIn("manusw7", notes)
         self.assertIn("a" * 40, notes)
         self.assertEqual(len((signed / "SHA256SUMS").read_text().splitlines()), 4)
 
     def test_rejects_unreviewed_or_changed_assets(self):
         output = self.prepare()
         self.comment["body"] = (output / "SIGNOFF-REQUIRED.txt").read_text()
-        for field, value in (("author_association", "NONE"), ("body", "approved")):
-            with self.subTest(field=field), patch.dict(self.comment, {field: value}):
-                with self.assertRaisesRegex(ValueError, "sign-off"):
-                    self.prepare(field, 123)
+        with patch.dict(self.comment, {"body": "approved"}):
+            with self.assertRaisesRegex(ValueError, "sign-off"):
+                self.prepare("body", 123)
+        with patch.dict(self.comment["user"], {"login": "someone-else"}):
+            with self.assertRaisesRegex(ValueError, "sign-off"):
+                self.prepare("unauthorized", 123)
         with patch.dict(self.comment["user"], {"type": "Bot"}):
             with self.assertRaisesRegex(ValueError, "sign-off"):
                 self.prepare("bot", 123)
@@ -94,7 +96,7 @@ class ReleaseTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "sign-off"):
                 self.prepare("edited", 123)
         with self.assertRaisesRegex(ValueError, "sign-off"):
-            self.prepare("self", 123, dispatcher="Reviewer")
+            self.prepare("self", 123, dispatcher="Manusw7")
         with self.assertRaisesRegex(ValueError, "--dispatcher"):
             self.prepare("no-dispatcher", 123, dispatcher=None)
 
